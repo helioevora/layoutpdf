@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.trytecom</groupId>
-  <artifactId>LayoutPDF</artifactId>
+  <artifactId>LayoutPDF-PSXPS2</artifactId>
   <version>1.0</version>
   <packaging>jar</packaging>
 
@@ -51,7 +51,7 @@
   </dependencies>
 
   <build>
-    <finalName>LayoutPDF</finalName>
+    <finalName>LayoutPDF-PSXPS2</finalName>
     <plugins>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>

@@ -113,54 +113,33 @@ public class PDF {
         }
     }
 
-    public static String formatAmountView(String amount) {
-        if (amount.contains(".")) {
-            amount = amount.replace(".", "");
-        }
-        if (amount.contains(",")) {
-            amount = amount.replace(",", "");
-        }
-        while (amount.length() < 13) {
-            amount = "0" + amount;
-        }
-        String parte_inteira = amount.substring(0, 11);
-        String parte_decimal = amount.substring(11, amount.length());
-        amount = parte_inteira + "." + parte_decimal;
-        DecimalFormat formatter = (DecimalFormat) NumberFormat.getCurrencyInstance(new Locale("pt", "POR"));
-        DecimalFormatSymbols symbols = formatter.getDecimalFormatSymbols();
-        symbols.setCurrencySymbol(""); // Don't use null.
-        formatter.setDecimalFormatSymbols(symbols);
-        amount = formatter.format(Double.parseDouble(amount));
-        //amount = amount.replace("¤", "");
-        amount = amount.replace(" ", "");
-        return amount;
-
-    }
-
-    public static boolean createVisanet(String path, String filename, String imageLogoFileWithCompletePath, List<List<String>> data, String [] dadosOrdenante, String montanteTotalEsperado, String montanteTotalProcessado, boolean validation, boolean processed) throws BadElementException, MalformedURLException, IOException {
+    public static boolean createPDF(String path, String filename, String imageLogoFileWithCompletePath, List<List<String>> data, String entity, String total, String rejected, String accepted, String moeda, boolean validation, boolean processed, String contaheader, String debitoOuCreditoHeader, String descritivoTipoServico, InfoBalcaoGestorEntity infoBalcaoGestorHeader) throws BadElementException, MalformedURLException, IOException {
         boolean result = false;
         Font catFont = new Font(Font.FontFamily.TIMES_ROMAN, 18, Font.BOLD);
-        //Font smallBold = new Font(Font.FontFamily.TIMES_ROMAN, 12, Font.BOLD);
+        Font smallBold = new Font(Font.FontFamily.TIMES_ROMAN, 12, Font.BOLD);
 
 
-        String[] tableDadosOrdenante = new String[4];
-        tableDadosOrdenante[0]="Nome do Ficheiro:";
-        tableDadosOrdenante[1]="Moeda:";
-        tableDadosOrdenante[2]="Data:";
-        tableDadosOrdenante[3]="Descritivo:";
-
-
-        String[] tableHeaders = new String[9];
-        tableHeaders[0]="Tema de Descritivo";
-        tableHeaders[1]="Operação";
-        tableHeaders[2]="Descritivo VSS";
-        tableHeaders[3]="Montante";
-        tableHeaders[4]="Descritivo CCB";
-        tableHeaders[5]="CCB Crédito";
-        tableHeaders[6]="CCB Débito";
-        tableHeaders[7]="Nº Operação";
-        tableHeaders[8]="Mensagem";
-
+        String[] headers = null;
+        if(debitoOuCreditoHeader.equals("D")){
+            headers = new String[6];
+            headers[0]="Referência Transferência";
+            headers[1]="Referência Pagamento";
+            headers[2]="Data";
+            headers[3]="Valor";
+            headers[4]="Conta Destino";
+            headers[5]="Mensagem / Número";
+        }else if(debitoOuCreditoHeader.equals("C")){
+            headers = new String[9];
+            headers[0]="Referência Transferência";
+            headers[1]="Referência Pagamento";
+            headers[2]="Data";
+            headers[3]="Valor";
+            headers[4]="Conta Origem";
+            headers[5]="Balcão";
+            headers[6]="Gestor";
+            headers[7]="Nome Gestor";
+            headers[8]="Mensagem / Número";
+        }
 
         //
         // Create a new document.
@@ -188,23 +167,48 @@ public class PDF {
             document.open();
 
             Paragraph preface = new Paragraph();
+
+            ///////////////////////////////////////////////// CRIAR TITULO DO PDF
             // We add one empty line
             addEmptyLine(preface, 4);
             // Lets write a big header
-            Paragraph paragraph = new Paragraph("RELATÓRIO VISANET", catFont);
+            Paragraph paragraph = new Paragraph(entity, catFont);
             paragraph.setAlignment(Element.ALIGN_CENTER);
             preface.add(paragraph);
 
-            addEmptyLine(preface, 2);
-            preface.add(createTableInfoEntity(tableDadosOrdenante, dadosOrdenante));
-            document.add(preface);
-            preface.clear();
             addEmptyLine(preface, 1);
-            preface.add(createTable(tableHeaders, data, "VISANET"));
+            Paragraph paragraph2 = new Paragraph("Banco Angolano de Investimentos", smallBold);
+            paragraph2.setAlignment(Element.ALIGN_CENTER);
+            preface.add(paragraph2);
+
+            Paragraph paragraph3 = new Paragraph("Relatório", smallBold);
+            paragraph3.setAlignment(Element.ALIGN_CENTER);
+            preface.add(paragraph3);
+
+            addEmptyLine(preface, 1);
+
+            total = formatAmountView(total);
+            try {
+                rejected = formatAmountView(rejected);
+            } catch (NumberFormatException e) {
+                rejected = formatAmountView("0");
+            }
+            accepted = formatAmountView(accepted);
+
+            preface.add(createTableTotais(total, rejected, accepted, moeda));
             document.add(preface);
             preface.clear();
-            preface.add(createTableMontanteTotal(montanteTotalEsperado,montanteTotalProcessado));
+            addEmptyLine(preface, 2);
+
+            preface.add(createTableContaOrigemOuDestino(contaheader, debitoOuCreditoHeader, descritivoTipoServico,infoBalcaoGestorHeader));
             document.add(preface);
+            preface.clear();
+            addEmptyLine(preface, 2);
+
+            //preface.add(createTableContaOrigemOuDestino(contaheader, debitoOuCreditoHeader, descritivoTipoServico,infoBalcaoGestorHeader));
+            preface.add(createTable(headers, data));
+            document.add(preface);
+
             result = true;
         } catch (DocumentException e) {
             e.printStackTrace();
@@ -215,140 +219,193 @@ public class PDF {
         }
         return result;
     }
-
-    private static PdfPTable createTableInfoEntity(String [] tableDadosOrdenante, String [] valores) throws DocumentException {
-        PdfPTable table = new PdfPTable(2);
-        float[] widths = new float[] { 20f, 60f };
-        table.setWidths(widths);
-        for (int i = 0; i < tableDadosOrdenante.length; i++) {
-            PdfPCell cellName = new PdfPCell();
-            cellName.setPhrase(new Phrase(tableDadosOrdenante[i], new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
-            cellName.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
-            cellName.setBorderWidth(0);
-            table.addCell(cellName);
-            PdfPCell cellValue = new PdfPCell();
-            cellValue.setPhrase(new Phrase(valores[i], new Font(Font.FontFamily.HELVETICA, 7)));
-            cellValue.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
-            cellValue.setBorderWidth(0);
-            table.addCell(cellValue);
-            table.completeRow();
-        }
-
-
-        return table;
-    }
-    private static PdfPTable createTableMontanteTotal(String montanteTotalEsperado, String montanteTotalProcessado) throws DocumentException {
-        PdfPTable table = new PdfPTable(9);
-        float[] widths = new float[] { 25f, 15f, 50f, 20f, 35f, 15f, 15f, 15f, 50f};
-        table.setWidths(widths);
-        PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBorderWidth(0);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-
-        PdfPCell cellTotalEsperado = new PdfPCell();
-        cellTotalEsperado.setPhrase(new Phrase("TOTAL ESPERADO:", new Font(Font.FontFamily.HELVETICA, 6, Font.BOLD)));
-        cellTotalEsperado.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
-        cellTotalEsperado.setBorderWidth(0);
-        table.addCell(cellTotalEsperado);
-
-        PdfPCell cellMontanteTotalEsperado = new PdfPCell();
-        cellMontanteTotalEsperado.setPhrase(new Phrase(montanteTotalEsperado, new Font(Font.FontFamily.HELVETICA, 6)));
-        cellMontanteTotalEsperado.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
-        cellMontanteTotalEsperado.setBorderWidth(0);
-        table.addCell(cellMontanteTotalEsperado);
-
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-
-        table.completeRow();
-
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-
-        PdfPCell cellTotalAplicado = new PdfPCell();
-        cellTotalAplicado.setPhrase(new Phrase("TOTAL APLICADO:", new Font(Font.FontFamily.HELVETICA, 6, Font.BOLD)));
-        cellTotalAplicado.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
-        cellTotalAplicado.setBorderWidth(0);
-        table.addCell(cellTotalAplicado);
-
-        PdfPCell cellMontanteTotalAplicado = new PdfPCell();
-        cellMontanteTotalAplicado.setPhrase(new Phrase(montanteTotalProcessado, new Font(Font.FontFamily.HELVETICA, 6)));
-        cellMontanteTotalAplicado.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
-        cellMontanteTotalAplicado.setBorderWidth(0);
-        table.addCell(cellMontanteTotalAplicado);
-
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-        table.addCell(emptyCell);
-
-        table.completeRow();
-
-        return table;
-    }
-
-    private static PdfPTable createTable(String[] headers, List<List<String>> data, String tipo) throws DocumentException {
+    private static PdfPTable createTable(String[] headers, List<List<String>> data) throws DocumentException{
         PdfPTable table = new PdfPTable(headers.length);
         table.setHeaderRows(1);
         int maxIndex = 0;
-        if(tipo.equals("VISANET")){
-            float[] widths = new float[] { 25f, 15f, 50f, 20f, 35f, 15f, 15f, 15f, 50f};
+        if(headers.length==6){
+            float[] widths = new float[] { 20f, 20f, 10f, 10f, 20f, 50f};
+            table.setWidths(widths);
+            maxIndex = 6;
+        }else if(headers.length==9){
+            float[] widths = new float[] { 15f, 20f, 10f, 15f, 25f, 8f, 8f, 25f, 50f};
             table.setWidths(widths);
             maxIndex = 9;
         }
-
         for (int i = 0; i < headers.length; i++) {
             String header = headers[i];
             PdfPCell cell = new PdfPCell();
             //cell.setGrayFill(0.7f);
-            //cell.setBackgroundColor(new BaseColor(139, 0, 0));
-            cell.setBackgroundColor(new BaseColor(57, 86, 112));
+            //cell.setBackgroundColor(new BaseColor(57, 86, 112));
+            cell.setBackgroundColor(new BaseColor(233, 112, 0));
             cell.setPhrase(new Phrase(header.toUpperCase(), new Font(Font.FontFamily.HELVETICA, 6, Font.BOLD, BaseColor.WHITE)));
             table.addCell(cell);
         }
         table.completeRow();
-        if(data!=null){
-            for (List<String> l : data) {
-                int index = 0;
-                for (String s : l) {
-                    PdfPCell cell = new PdfPCell();
-                    if (s != null) {
-                        if (maxIndex==9){
-                            if(index < 8){
-                                cell.setPhrase(new Phrase(s.toUpperCase(), new Font(Font.FontFamily.HELVETICA, 6, Font.NORMAL)));
-                            }else{
-                                cell.setPhrase(new Phrase(s, new Font(Font.FontFamily.HELVETICA, 6, Font.NORMAL)));
-                            }
-                            if(index==3 || index==7){
-                                cell.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
-                            }else if(index==5 || index==6){
-                                cell.setHorizontalAlignment(PdfPCell.ALIGN_CENTER);
-                            }
-                            table.addCell(cell);
-                            index++;
-                            if(index >= maxIndex){
-                                index=0;
-                            }
-                        }
 
+        for (List<String> l : data) {
+            int index = 0;
+            for (String s : l) {
+                PdfPCell cell = new PdfPCell();
+                if (s != null) {
+                    if (maxIndex==6){
+                        if(index < 6){
+                            cell.setPhrase(new Phrase(s.toUpperCase(), new Font(Font.FontFamily.HELVETICA, 6, Font.NORMAL)));
+                        }else {
+                            cell.setPhrase(new Phrase(s, new Font(Font.FontFamily.HELVETICA, 6, Font.NORMAL)));
+                        }
+                        if(index==3){
+                            cell.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
+                        }else if(index == 4) {
+                            cell.setHorizontalAlignment(PdfPCell.ALIGN_CENTER);
+                        }
+                        index++;
+                        if (index >= maxIndex){
+                            index=0;
+                        }
+                    }else if (maxIndex==9){
+                        if (index < 6){
+                            cell.setPhrase(new Phrase(s.toUpperCase(), new Font(Font.FontFamily.HELVETICA, 6, Font.NORMAL)));
+                        }else{
+                            cell.setPhrase(new Phrase(s, new Font(Font.FontFamily.HELVETICA, 6, Font.NORMAL)));
+                        }
+                        if(index==3){
+                            cell.setHorizontalAlignment(PdfPCell.ALIGN_RIGHT);
+                        }else if(index==4) {
+                            cell.setHorizontalAlignment(PdfPCell.ALIGN_CENTER);
+                        }
+                        index++;
+                        if (index >= maxIndex) {
+                            index = 0;
+                        }
                     }
+
+                    table.addCell(cell);
                 }
-                table.completeRow();
             }
+            table.completeRow();
+        }
+        return table;
+    }
+
+    private static PdfPTable createTableTotais(String total, String reject, String accepted, String moeda) throws DocumentException {
+        PdfPTable table = new PdfPTable(2);
+        float[] widths = new float[] { 20f, 60f };
+        table.setWidths(widths);
+        PdfPCell cellValorTotal = new PdfPCell();
+        cellValorTotal.setPhrase(new Phrase("Valor Total", new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+        cellValorTotal.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellValorTotal);
+        PdfPCell cellTotal = new PdfPCell();
+        cellTotal.setPhrase(new Phrase(total + moeda, new Font(Font.FontFamily.HELVETICA, 7)));
+        cellTotal.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellTotal);
+        table.completeRow();
+
+        if(!reject.equals("0,00") || !reject.equals("0.00")){
+            PdfPCell cellValorRejeitado = new PdfPCell();
+            cellValorRejeitado.setPhrase(new Phrase("Total Rejeitado", new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+            cellValorRejeitado.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+            table.addCell(cellValorRejeitado);
+            PdfPCell cellRejeitado = new PdfPCell();
+            cellRejeitado.setPhrase(new Phrase(reject + moeda, new Font(Font.FontFamily.HELVETICA, 7)));
+            cellRejeitado.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+            table.addCell(cellRejeitado);
+            table.completeRow();
+        }
+
+        if(!accepted.equals("0,00") || !accepted.equals("0.00")){
+            PdfPCell cellValorAprovado = new PdfPCell();
+            cellValorAprovado.setPhrase(new Phrase("Total Aprovado", new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+            cellValorAprovado.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+            table.addCell(cellValorAprovado);
+            PdfPCell cellAprovado = new PdfPCell();
+            cellAprovado.setPhrase(new Phrase(accepted + moeda, new Font(Font.FontFamily.HELVETICA, 7)));
+            cellAprovado.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+            table.addCell(cellAprovado);
+            table.completeRow();
         }
 
         return table;
     }
+    private static PdfPTable createTableContaOrigemOuDestino(String contaheader,String debitoOuCreditoHeader, String descritivoTipoServico, InfoBalcaoGestorEntity infoBalcaoGestor) throws DocumentException {
+        PdfPTable table = new PdfPTable(2);
+        float[] widths = new float[] { 20f, 60f };
+        table.setWidths(widths);
+        String designacao = "";
+        if(debitoOuCreditoHeader.equals("C")){
+            designacao = "Conta Destino";
+        }else{
+            designacao = "Conta Origem";
+        }
+        PdfPCell cellTipoServico = new PdfPCell();
+        cellTipoServico.setPhrase(new Phrase("Serviço", new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+        cellTipoServico.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellTipoServico);
+        PdfPCell cellDesignacaoTipoServico = new PdfPCell();
+        cellDesignacaoTipoServico.setPhrase(new Phrase(descritivoTipoServico, new Font(Font.FontFamily.HELVETICA, 7)));
+        cellDesignacaoTipoServico.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellDesignacaoTipoServico);
+        table.completeRow();
 
+        PdfPCell cellConta = new PdfPCell();
+        cellConta.setPhrase(new Phrase(designacao, new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+        cellConta.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellConta);
+        PdfPCell cellTotal = new PdfPCell();
+        cellTotal.setPhrase(new Phrase(contaheader, new Font(Font.FontFamily.HELVETICA, 7)));
+        cellTotal.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellTotal);
+        table.completeRow();
 
+        PdfPCell cellBalcaoDomicilio = new PdfPCell();
+        cellBalcaoDomicilio.setPhrase(new Phrase("Balcão de Domicilio", new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+        cellBalcaoDomicilio.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellBalcaoDomicilio);
+        PdfPCell cellValueBalcaoDomicilio = new PdfPCell();
+        cellValueBalcaoDomicilio.setPhrase(new Phrase(infoBalcaoGestor.getBalcaoDomicilio(), new Font(Font.FontFamily.HELVETICA, 7)));
+        cellValueBalcaoDomicilio.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellValueBalcaoDomicilio);
+        table.completeRow();
+
+        PdfPCell cellGestor = new PdfPCell();
+        cellGestor.setPhrase(new Phrase("Gestor", new Font(Font.FontFamily.HELVETICA, 7, Font.BOLD)));
+        cellGestor.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellGestor);
+        PdfPCell cellValueGestor = new PdfPCell();
+        cellValueGestor.setPhrase(new Phrase(infoBalcaoGestor.getCodigoGestor()+" - "+infoBalcaoGestor.getNomeGestor(), new Font(Font.FontFamily.HELVETICA, 7)));
+        cellValueGestor.setHorizontalAlignment(PdfPCell.ALIGN_LEFT);
+        table.addCell(cellValueGestor);
+        table.completeRow();
+
+        return table;
+    }
     private static void addEmptyLine(Paragraph paragraph, int number) {
         for (int i = 0; i < number; i++) {
             paragraph.add(new Paragraph(" "));
         }
+    }
+    public static String formatAmountView(String amount) {
+        if (amount.contains(".")) {
+            amount = amount.replace(".", "");
+        }
+        if (amount.contains(",")) {
+            amount = amount.replace(",", "");
+        }
+        while (amount.length() < 13) {
+            amount = "0" + amount;
+        }
+        String parte_inteira = amount.substring(0, 11);
+        String parte_decimal = amount.substring(11, amount.length());
+        amount = parte_inteira + "." + parte_decimal;
+        DecimalFormat formatter = (DecimalFormat) NumberFormat.getCurrencyInstance(new Locale("pt", "POR"));
+        DecimalFormatSymbols symbols = formatter.getDecimalFormatSymbols();
+        symbols.setCurrencySymbol(""); // Don't use null.
+        formatter.setDecimalFormatSymbols(symbols);
+        amount = formatter.format(Double.parseDouble(amount));
+        //amount = amount.replace("¤", "");
+        amount = amount.replace(" ", "");
+        return amount;
+
     }
 }
